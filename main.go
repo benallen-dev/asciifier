@@ -1,81 +1,98 @@
 package main
 
 import (
-	"io"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+
+	_ "embed"
 )
 
 func printUsage() {
-	fmt.Println("Usage: asciifier [-font=<foo>] <text>")
-	fmt.Println("   - available fonts: ")
-	fmt.Println("     - foo")
-	fmt.Println("     - bar")
-	fmt.Println("     - baz")
+	fmt.Println("Usage: asciifier [-f=<fontname> -p=<prefix>] <text>")
+	flag.PrintDefaults()
 }
 
-func readFont(filename string) (output map[rune]string, err error) {
-	output = map[rune]string{}
+//go:embed res/ansi-shadow.txt
+var font string
 
-	file, err := os.Open("res/"+filename)
-	if err != nil {
-		return output, err
+type UnknownFontError struct {
+	fontname string
+}
+
+func (e UnknownFontError) Error() string {
+	return fmt.Sprintf("Unknown font: %s", e.fontname)
+}
+
+// In the future we could do a embed.fs with multiple fonts, that could be fun
+func readFont(fontname string) (output map[rune][]string, err error) {
+
+	// Currently we only have one, ansi-shadow
+	if fontname != "ansi-shadow" {
+		return nil, &UnknownFontError{fontname}
 	}
-	defer file.Close()
 
+	output = map[rune][]string{}
 
-	buf, err := io.ReadAll(file)
-	if err != nil {
-		return output, err
+	// Font splits characters by empty lines, with the first line
+	// containing the characters to map to this glyph and
+	// the rest of the lines containing the glyph itself
+	chars := strings.Split(font, "\n\n")
+
+	for _, char := range chars {
+		l := strings.Split(char, "\n")
+		t := l[0]
+		c := l[1:]
+
+		for _, r := range t {
+			output[rune(r)] = c
+		}
 	}
-
-	bufs := string(buf)
-	fmt.Println("file content:")
-	fmt.Print(bufs)
 
 	return output, nil
-
 }
 
+func asciify(font map[rune][]string, prefix string, text string) (output string) {
+	output = ""
+	height := len(font['A'])
+
+	for i := range height {
+		output += prefix
+		
+		for _, r := range text {
+			if glyph, ok := font[r]; ok {
+				output += glyph[i]
+			}
+		}
+
+		output += "\n"
+	}
+
+	return output
+}
 
 func main() {
+
+	fontname := flag.String("f", "ansi-shadow", "font name")
+	prefix := flag.String("p", "", "prefix for each line, for indentation or use as code comment")
+	flag.Parse()
+	
+	text := strings.Join(flag.Args(), " ")
+
 	args := os.Args[1:]
 	if len(args) == 0 {
 		printUsage()
 		return
 	}
 
-	font := flag.String("font", "foo", "font name")
-	flag.Parse()
-
-	text := strings.Join(flag.Args(), " ")
-
-	glyphs, err := readFont("ansi-shadow.txt")
+	font, err := readFont(*fontname)
 	if err != nil {
 		fmt.Println(err)
-		panic(1)
+		return
 	}
 
-	fmt.Println(glyphs)
-
-
-
-	switch *font {
-	case "foo":
-		fmt.Println("foo font:", text)
-	case "bar":
-		fmt.Println("bar font:", text)
-	case "baz":
-		fmt.Println("baz font:", text)
-	default:
-		fmt.Println("Unknown font:", font)
-		printUsage()
-			
-	}
-
-
+	output := asciify(font, *prefix, text)
+	fmt.Print(output)
 }
-
 
